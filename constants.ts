@@ -1,8 +1,14 @@
+
 export const STORAGE_KEYS = {
   // Config keys
   GOOGLE_SCRIPT_URL: 'tts_google_script_url',
   CURRENT_USER: 'tts_current_user'
 };
+
+// 【重要】請將您的 Google Apps Script Web App URL 貼在下方的引號中
+// 例如: "https://script.google.com/macros/s/AKfycbwacnwloJmxQ-JTJr0QE0p3mnkpPBwvVMjh8YcIZTqHbqx694LuRemW_EP2vt6jsBM/exec"
+// 如果填寫了這個，使用者就不需要手動設定連線。
+export const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwacnwloJmxQ-JTJr0QE0p3mnkpPBwvVMjh8YcIZTqHbqx694LuRemW_EP2vt6jsBM/exec"; 
 
 export const POLLING_INTERVAL = 10000; // 10 seconds for checking new tasks
 

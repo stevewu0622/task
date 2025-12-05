@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { AuthState, Task, TaskStatus, User, UserRole } from './types';
 import { STORAGE_KEYS, POLLING_INTERVAL } from './constants';
-import { loginUser, registerUser, getTasks, saveTask, updateTaskStatus, markTaskAsRead } from './services/storage';
+import { loginUser, registerUser, getTasks, saveTask, updateTaskStatus, markTaskAsRead, getApiUrl } from './services/storage';
 import Login from './components/Login';
 import TaskCard from './components/TaskCard';
 import CreateTaskModal from './components/CreateTaskModal';
@@ -26,7 +27,8 @@ function App() {
 
   // --- Check for Setup ---
   useEffect(() => {
-      const url = localStorage.getItem(STORAGE_KEYS.GOOGLE_SCRIPT_URL);
+      // Check if URL is available (either from localStorage or hardcoded constant)
+      const url = getApiUrl();
       if (url) {
           setIsSetupRequired(false);
       }
@@ -43,10 +45,14 @@ function App() {
     }
   }, []);
 
-  // --- Notification Request ---
+  // --- Notification Request (Safe Mode) ---
   useEffect(() => {
-    if (authState.isAuthenticated && Notification.permission !== 'granted') {
-        Notification.requestPermission();
+    if (authState.isAuthenticated && 'Notification' in window && Notification.permission !== 'granted') {
+        try {
+            Notification.requestPermission().catch(e => console.log("Notification permission failed:", e));
+        } catch (e) {
+            console.log("Notifications not supported in this environment");
+        }
     }
   }, [authState.isAuthenticated]);
 
@@ -58,14 +64,6 @@ function App() {
     
     try {
       const allTasks = await getTasks();
-      
-      // Check for new tasks for notification (Simple ID comparison)
-      // Note: This logic depends on 'tasks' state which might be stale in closure if not careful,
-      // but we update state immediately after. 
-      // A better way for notifications in polling is to check timestamp or specific 'unnotified' flag in real DB,
-      // but for this simple sheet wrapper, we compare IDs against the *previous fetch* which we can't easily access inside a callback without refs.
-      // We will rely on the poller logic in useEffect to handle the diff.
-
       setTasks(allTasks);
     } catch (error) {
       console.error("Failed to fetch tasks", error);
@@ -90,16 +88,19 @@ function App() {
                      const currentUser = JSON.parse(localStorage.getItem(STORAGE_KEYS.CURRENT_USER) || '{}');
                      
                      // Find tasks assigned to me that I haven't seen in the previous state list
-                     // Note: This only catches *newly created* tasks, not updates to existing ones for now
                      const newAssigned = serverTasks.filter(t => 
                         t.assignedTo.includes(currentUser.id) && !prevIds.has(t.id)
                      );
 
-                     if (newAssigned.length > 0 && Notification.permission === 'granted') {
-                        // Debounce/limit notifications? For now show the first one
-                        new Notification("新任務通知", {
-                            body: `${newAssigned[0].createdByName} 指派了: ${newAssigned[0].title}`
-                        });
+                     // Safe Notification Logic for Mobile/Crash Prevention
+                     if (newAssigned.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
+                        try {
+                            new Notification("新任務通知", {
+                                body: `${newAssigned[0].createdByName} 指派了: ${newAssigned[0].title}`
+                            });
+                        } catch (e) {
+                            console.log("Notification display failed (mobile or background restriction)", e);
+                        }
                      }
                      return serverTasks;
                  });
@@ -126,9 +127,12 @@ function App() {
   };
 
   const handleResetConnection = () => {
-      if(confirm("確定要重置連線設定嗎？您將需要重新輸入 Apps Script URL。")) {
+      if(confirm("確定要重置連線設定嗎？(如果是使用預設網址，重置後仍會連線到預設資料庫)")) {
           localStorage.removeItem(STORAGE_KEYS.GOOGLE_SCRIPT_URL);
-          setIsSetupRequired(true);
+          // Only enforce setup if there is no default hardcoded URL
+          if (!getApiUrl()) {
+             setIsSetupRequired(true);
+          }
           handleLogout();
       }
   };
@@ -216,13 +220,14 @@ function App() {
       <header className="bg-white border-b sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="bg-green-600 p-2 rounded-lg">
+            <div className="bg-green-600 p-2 rounded-lg shrink-0">
                 <Layout className="text-white w-6 h-6" />
             </div>
-            <h1 className="text-xl font-bold text-gray-800 hidden sm:block">TeamTask Sync</h1>
+            {/* Mobile Fix: Remove 'hidden sm:block' so title is visible on mobile */}
+            <h1 className="text-xl font-bold text-gray-800">TeamTask Sync</h1>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <div className="relative">
                 <Bell className="text-gray-500 w-6 h-6" />
                 {myPendingCount > 0 && (
@@ -231,6 +236,7 @@ function App() {
                     </span>
                 )}
             </div>
+            {/* User info can remain hidden on very small screens to save space, or use icon */}
             <div className="text-right hidden sm:block">
               <div className="text-sm font-medium text-gray-900">{authState.user?.name}</div>
               <div className="text-xs text-gray-500">{authState.user?.role === UserRole.ADMIN ? '管理員' : '一般成員'}</div>
@@ -258,14 +264,14 @@ function App() {
                 className={`flex-1 md:flex-none px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${viewMode === 'inbox' ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}
             >
                 <Layout size={16} /> 
-                收件匣 (我的任務)
+                收件匣
             </button>
             <button 
                 onClick={() => setViewMode('outbox')}
                 className={`flex-1 md:flex-none px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${viewMode === 'outbox' ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}
             >
                 <Send size={16} /> 
-                寄件備份 (我指派的)
+                寄件備份
             </button>
           </div>
 
@@ -280,7 +286,7 @@ function App() {
                 <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
                 <input 
                     type="text" 
-                    placeholder="搜尋任務標題、內容或同事..." 
+                    placeholder="搜尋任務..." 
                     className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}

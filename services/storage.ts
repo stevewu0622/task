@@ -1,10 +1,12 @@
+
 import { Task, User, UserRole, UserStatus, TaskStatus } from '../types';
-import { STORAGE_KEYS } from '../constants';
+import { STORAGE_KEYS, DEFAULT_GOOGLE_SCRIPT_URL } from '../constants';
 
 // --- API Helper ---
 
-const getApiUrl = () => {
-  return localStorage.getItem(STORAGE_KEYS.GOOGLE_SCRIPT_URL);
+export const getApiUrl = () => {
+  // Priority: 1. LocalStorage (Manual override) 2. Hardcoded Default
+  return localStorage.getItem(STORAGE_KEYS.GOOGLE_SCRIPT_URL) || DEFAULT_GOOGLE_SCRIPT_URL;
 };
 
 // Generic API call wrapper
