@@ -1,0 +1,5 @@
+{
+  "name": "TeamTask Sync",
+  "description": "A collaborative task assignment tool with approval-based access, notifications, and status tracking.",
+  "requestFramePermissions": []
+}
