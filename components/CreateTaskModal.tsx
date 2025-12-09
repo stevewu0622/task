@@ -1,14 +1,16 @@
+
 import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
 import Input from './Input';
 import Button from './Button';
-import { User } from '../types';
+import { User, TaskPriority } from '../types';
 import { getUsers } from '../services/storage';
+import { PRIORITY_LABELS, PRIORITY_COLORS } from '../constants';
 
 interface CreateTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: { title: string; description: string; assignedTo: string[]; dueDate: string }) => void;
+  onSubmit: (data: { title: string; description: string; assignedTo: string[]; dueDate: string; priority: TaskPriority }) => void;
   currentUser: User | null;
 }
 
@@ -16,6 +18,7 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ isOpen, onClose, onSu
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [priority, setPriority] = useState<TaskPriority>(TaskPriority.MEDIUM);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
@@ -26,7 +29,6 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ isOpen, onClose, onSu
         setIsLoadingUsers(true);
         try {
           const allUsers = await getUsers();
-          // Filter out self and inactive users
           setUsers(allUsers.filter(u => u.id !== currentUser?.id && u.status === 'ACTIVE'));
         } catch (e) {
           console.error(e);
@@ -35,10 +37,10 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ isOpen, onClose, onSu
         }
       };
       fetchUsers();
-      // Reset form
       setTitle('');
       setDescription('');
       setDueDate('');
+      setPriority(TaskPriority.MEDIUM);
       setSelectedUsers([]);
     }
   }, [isOpen, currentUser]);
@@ -49,7 +51,7 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ isOpen, onClose, onSu
       alert("請至少選擇一位同事");
       return;
     }
-    onSubmit({ title, description, assignedTo: selectedUsers, dueDate });
+    onSubmit({ title, description, assignedTo: selectedUsers, dueDate, priority });
     onClose();
   };
 
@@ -62,13 +64,29 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ isOpen, onClose, onSu
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="指派新任務">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Input 
-          label="任務標題" 
-          value={title} 
-          onChange={(e) => setTitle(e.target.value)} 
-          required 
-          placeholder="例如：請協助確認客戶報價單"
-        />
+        <div className="flex gap-4">
+            <div className="flex-1">
+                <Input 
+                label="任務標題" 
+                value={title} 
+                onChange={(e) => setTitle(e.target.value)} 
+                required 
+                placeholder="例如：請協助確認客戶報價單"
+                />
+            </div>
+            <div className="w-1/3">
+                 <label className="block text-sm font-medium text-gray-700 mb-1">優先級</label>
+                 <select 
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value as TaskPriority)}
+                    className="w-full px-3 py-2 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                 >
+                    {Object.values(TaskPriority).map(p => (
+                        <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>
+                    ))}
+                 </select>
+            </div>
+        </div>
         
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">任務詳情</label>

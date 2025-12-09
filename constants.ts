@@ -1,4 +1,6 @@
 
+import { TaskPriority } from "./types";
+
 export const STORAGE_KEYS = {
   // Config keys
   GOOGLE_SCRIPT_URL: 'tts_google_script_url',
@@ -6,7 +8,7 @@ export const STORAGE_KEYS = {
 };
 
 // 【重要】請將您的 Google Apps Script Web App URL 貼在下方的引號中
-// 例如: "https://script.google.com/macros/s/AKfycbwacnwloJmxQ-JTJr0QE0p3mnkpPBwvVMjh8YcIZTqHbqx694LuRemW_EP2vt6jsBM/exec"
+// 例如: "https://script.google.com/macros/s/......./exec"
 // 如果填寫了這個，使用者就不需要手動設定連線。
 export const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwacnwloJmxQ-JTJr0QE0p3mnkpPBwvVMjh8YcIZTqHbqx694LuRemW_EP2vt6jsBM/exec"; 
 
@@ -24,4 +26,16 @@ export const STATUS_COLORS: Record<string, string> = {
   RECEIVED: 'bg-yellow-100 text-yellow-800 border-yellow-200',
   IN_PROGRESS: 'bg-blue-100 text-blue-800 border-blue-200',
   DONE: 'bg-green-100 text-green-800 border-green-200',
+};
+
+export const PRIORITY_LABELS: Record<TaskPriority, string> = {
+  [TaskPriority.HIGH]: '🔥 緊急',
+  [TaskPriority.MEDIUM]: '⚡ 一般',
+  [TaskPriority.LOW]: '☕ 緩慢',
+};
+
+export const PRIORITY_COLORS: Record<TaskPriority, string> = {
+  [TaskPriority.HIGH]: 'text-red-600 bg-red-50 border-red-100',
+  [TaskPriority.MEDIUM]: 'text-blue-600 bg-blue-50 border-blue-100',
+  [TaskPriority.LOW]: 'text-gray-500 bg-gray-50 border-gray-100',
 };

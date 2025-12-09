@@ -10,7 +10,6 @@ export const getApiUrl = () => {
 };
 
 // Generic API call wrapper
-// We use POST for everything to avoid caching and simplify the GAS side (doPost handles payload better)
 const apiCall = async (action: 'READ' | 'CREATE' | 'UPDATE', params: any = {}) => {
   const url = getApiUrl();
   if (!url) throw new Error("API URL not configured");
@@ -18,8 +17,6 @@ const apiCall = async (action: 'READ' | 'CREATE' | 'UPDATE', params: any = {}) =
   try {
     const response = await fetch(url, {
       method: "POST",
-      // IMPORTANT: Google Apps Script requires Content-Type to be text/plain to avoid CORS preflight (OPTIONS) requests.
-      // If sent as application/json, the browser sends an OPTIONS request first, which GAS rejects.
       headers: {
         "Content-Type": "text/plain;charset=utf-8",
       },
@@ -57,9 +54,6 @@ export const updateUserStatus = async (userId: string, status: UserStatus): Prom
 };
 
 export const initializeAdmin = async () => {
-  // Logic remains similar: checks exist on frontend/backend boundary
-  // With Sheets, usually the first row is what it is. 
-  // We can just rely on the first user registered being admin logic in registerUser
 };
 
 // --- Task Services ---
@@ -81,20 +75,40 @@ export const updateTaskStatus = async (taskId: string, status: TaskStatus): Prom
   });
 };
 
-export const markTaskAsRead = async (taskId: string): Promise<void> => {
-    await apiCall('UPDATE', { 
-        sheet: 'Tasks', 
-        id: taskId, 
-        updates: { isRead: true } 
-    });
+export const markTaskAsRead = async (taskId: string, userId: string): Promise<void> => {
+    // Ideally, we push to the array. 
+    // Since Google Sheets JSON update replaces the field, we need to handle this carefully.
+    // However, for this simplified architecture, we will fetch, update array, and save back essentially, 
+    // OR we rely on the `apiCall` UPDATE logic which merges top-level fields. 
+    // The safest way with the current GAS script (which merges `updates`) is to:
+    // 1. We can't easily push to an array atomically in the simple GAS script provided without fetching first or sending the whole new array.
+    // Optimistic approach: The frontend sends the new array.
+    
+    // In a real DB, this is an atomic $addToSet. 
+    // Here, we have to rely on the frontend knowing the current state.
+    
+    // NOTE: This runs the risk of race conditions if two people read at the EXACT same time, 
+    // but for a small team, it's acceptable.
+    
+    const tasks = await getTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+        const currentReadBy = task.readBy || [];
+        if (!currentReadBy.includes(userId)) {
+            const newReadBy = [...currentReadBy, userId];
+            await apiCall('UPDATE', { 
+                sheet: 'Tasks', 
+                id: taskId, 
+                updates: { readBy: newReadBy } 
+            });
+        }
+    }
 }
 
-// --- Auth Mock (Logic kept on client side for simplicity in this serverless setup) ---
+// --- Auth Mock ---
 
 export const loginUser = async (email: string, password: string): Promise<User | null> => {
   const users = await getUsers();
-  // In a real server, we send credentials and get token.
-  // Here, we fetch DB and check locally because GAS is just a dumb store.
   const user = users.find(u => u.email === email && u.passwordHash === password); 
   
   if (user) {
@@ -112,7 +126,6 @@ export const registerUser = async (name: string, email: string, password: string
     throw new Error("此 Email 已被註冊");
   }
 
-  // First user is Admin, others are Pending
   const isFirstUser = users.length === 0;
 
   const newUser: User = {

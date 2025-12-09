@@ -1,16 +1,15 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { AuthState, Task, TaskStatus, User, UserRole } from './types';
+import { AuthState, Task, TaskStatus, User, UserRole, TaskPriority } from './types';
 import { STORAGE_KEYS, POLLING_INTERVAL } from './constants';
-import { loginUser, registerUser, getTasks, saveTask, updateTaskStatus, markTaskAsRead, getApiUrl } from './services/storage';
+import { loginUser, registerUser, getTasks, saveTask, updateTaskStatus, getApiUrl } from './services/storage';
 import Login from './components/Login';
 import TaskCard from './components/TaskCard';
 import CreateTaskModal from './components/CreateTaskModal';
 import Button from './components/Button';
 import AdminPanel from './components/AdminPanel';
 import SetupWizard from './components/SetupWizard';
-import Input from './components/Input';
-import { Bell, LogOut, Plus, Search, Filter, RefreshCw, Layout, Send, Database } from 'lucide-react';
+import { Bell, LogOut, Plus, Search, Filter, RefreshCw, Layout, Send, Database, PieChart, CheckCircle2, CircleDashed, ListTodo, Activity } from 'lucide-react';
 
 function App() {
   const [isSetupRequired, setIsSetupRequired] = useState(true);
@@ -27,7 +26,6 @@ function App() {
 
   // --- Check for Setup ---
   useEffect(() => {
-      // Check if URL is available (either from localStorage or hardcoded constant)
       const url = getApiUrl();
       if (url) {
           setIsSetupRequired(false);
@@ -45,13 +43,13 @@ function App() {
     }
   }, []);
 
-  // --- Notification Request (Safe Mode) ---
+  // --- Notification Request ---
   useEffect(() => {
     if (authState.isAuthenticated && 'Notification' in window && Notification.permission !== 'granted') {
         try {
             Notification.requestPermission().catch(e => console.log("Notification permission failed:", e));
         } catch (e) {
-            console.log("Notifications not supported in this environment");
+            console.log("Notifications not supported");
         }
     }
   }, [authState.isAuthenticated]);
@@ -72,11 +70,9 @@ function App() {
     }
   }, [authState.user, isSetupRequired]);
 
-  // Separate polling logic to handle state diffs correctly
   useEffect(() => {
       let intervalId: ReturnType<typeof setInterval>;
       if (authState.isAuthenticated && !isSetupRequired) {
-          // Initial fetch
           fetchTasks();
 
           const poll = async () => {
@@ -87,20 +83,17 @@ function App() {
                      const prevIds = new Set(prevTasks.map(t => t.id));
                      const currentUser = JSON.parse(localStorage.getItem(STORAGE_KEYS.CURRENT_USER) || '{}');
                      
-                     // Find tasks assigned to me that I haven't seen in the previous state list
+                     // Find new tasks assigned to me
                      const newAssigned = serverTasks.filter(t => 
                         t.assignedTo.includes(currentUser.id) && !prevIds.has(t.id)
                      );
 
-                     // Safe Notification Logic for Mobile/Crash Prevention
                      if (newAssigned.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
                         try {
                             new Notification("新任務通知", {
                                 body: `${newAssigned[0].createdByName} 指派了: ${newAssigned[0].title}`
                             });
-                        } catch (e) {
-                            console.log("Notification display failed (mobile or background restriction)", e);
-                        }
+                        } catch (e) {}
                      }
                      return serverTasks;
                  });
@@ -127,17 +120,14 @@ function App() {
   };
 
   const handleResetConnection = () => {
-      if(confirm("確定要重置連線設定嗎？(如果是使用預設網址，重置後仍會連線到預設資料庫)")) {
+      if(confirm("確定要重置連線設定嗎？")) {
           localStorage.removeItem(STORAGE_KEYS.GOOGLE_SCRIPT_URL);
-          // Only enforce setup if there is no default hardcoded URL
-          if (!getApiUrl()) {
-             setIsSetupRequired(true);
-          }
+          if (!getApiUrl()) setIsSetupRequired(true);
           handleLogout();
       }
   };
 
-  const handleCreateTask = async (data: { title: string; description: string; assignedTo: string[]; dueDate: string }) => {
+  const handleCreateTask = async (data: { title: string; description: string; assignedTo: string[]; dueDate: string; priority: TaskPriority }) => {
     if (!authState.user) return;
     
     const newTask: Task = {
@@ -146,14 +136,15 @@ function App() {
       description: data.description,
       assignedTo: data.assignedTo,
       dueDate: data.dueDate,
+      priority: data.priority,
       createdBy: authState.user.id,
       createdByName: authState.user.name,
       status: TaskStatus.ASSIGNED,
       createdAt: Date.now(),
-      isRead: false
+      readBy: [] // Initialize empty
     };
 
-    setIsLoading(true); // Manually set loading for better UX
+    setIsLoading(true);
     try {
         await saveTask(newTask);
         await fetchTasks();
@@ -165,38 +156,46 @@ function App() {
   };
 
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
-      // Optimistic update
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
       try {
         await updateTaskStatus(taskId, newStatus);
       } catch (e) {
         console.error("Failed to update status", e);
-        // Revert on failure (could implement fetching again)
       }
   };
 
   // --- Filtering Logic ---
-  const filteredTasks = tasks.filter(task => {
-    if (!authState.user) return false;
+  
+  // 1. First determine the "Universe" of tasks based on View Mode (Inbox vs Outbox)
+  // This is used for Statistics regardless of Search filters
+  const viewTasks = tasks.filter(task => {
+      if (!authState.user) return false;
+      if (viewMode === 'inbox') return task.assignedTo.includes(authState.user.id);
+      if (viewMode === 'outbox') return task.createdBy === authState.user.id;
+      return false;
+  });
 
-    // View Mode Filter
-    const isInbox = viewMode === 'inbox' && task.assignedTo.includes(authState.user.id);
-    const isOutbox = viewMode === 'outbox' && task.createdBy === authState.user.id;
-    if (!isInbox && !isOutbox) return false;
+  // 2. Statistics Calculation
+  const stats = {
+      pending: viewTasks.filter(t => t.status === TaskStatus.ASSIGNED || t.status === TaskStatus.RECEIVED).length,
+      inProgress: viewTasks.filter(t => t.status === TaskStatus.IN_PROGRESS).length,
+      done: viewTasks.filter(t => t.status === TaskStatus.DONE).length,
+      total: viewTasks.length
+  };
+  const completionRate = stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0;
 
-    // Search Filter
+  // 3. Apply Search and Status Filters for the Grid
+  const filteredTasks = viewTasks.filter(task => {
     const matchesSearch = 
         task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         task.createdByName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         task.description.toLowerCase().includes(searchQuery.toLowerCase());
     
     if (!matchesSearch) return false;
-
-    // Status Filter
     if (statusFilter !== 'ALL' && task.status !== statusFilter) return false;
 
     return true;
-  }).sort((a, b) => b.createdAt - a.createdAt); // Newest first
+  }).sort((a, b) => b.createdAt - a.createdAt);
 
   const myPendingCount = tasks.filter(t => 
     authState.user && 
@@ -223,7 +222,6 @@ function App() {
             <div className="bg-green-600 p-2 rounded-lg shrink-0">
                 <Layout className="text-white w-6 h-6" />
             </div>
-            {/* Mobile Fix: Remove 'hidden sm:block' so title is visible on mobile */}
             <h1 className="text-xl font-bold text-gray-800">TeamTask Sync</h1>
           </div>
           
@@ -236,7 +234,6 @@ function App() {
                     </span>
                 )}
             </div>
-            {/* User info can remain hidden on very small screens to save space, or use icon */}
             <div className="text-right hidden sm:block">
               <div className="text-sm font-medium text-gray-900">{authState.user?.name}</div>
               <div className="text-xs text-gray-500">{authState.user?.role === UserRole.ADMIN ? '管理員' : '一般成員'}</div>
@@ -257,7 +254,7 @@ function App() {
         {authState.user?.role === UserRole.ADMIN && <AdminPanel />}
 
         {/* Toolbar */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div className="flex items-center gap-2 bg-white p-1 rounded-lg border shadow-sm w-full md:w-auto">
             <button 
                 onClick={() => setViewMode('inbox')}
@@ -278,6 +275,55 @@ function App() {
           <Button onClick={() => setIsCreateModalOpen(true)} className="w-full md:w-auto shadow-sm">
             <Plus className="w-5 h-5" /> 指派新任務
           </Button>
+        </div>
+
+        {/* Dashboard Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="text-gray-500 text-sm font-medium">待處理</span>
+                    <div className="p-1.5 bg-red-100 rounded-lg">
+                        <ListTodo className="w-4 h-4 text-red-600" />
+                    </div>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">{stats.pending}</div>
+                <div className="text-xs text-gray-400 mt-1">未讀取或未開始</div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="text-gray-500 text-sm font-medium">進行中</span>
+                    <div className="p-1.5 bg-blue-100 rounded-lg">
+                        <Activity className="w-4 h-4 text-blue-600" />
+                    </div>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">{stats.inProgress}</div>
+                <div className="text-xs text-gray-400 mt-1">正在處理的任務</div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="text-gray-500 text-sm font-medium">已完成</span>
+                    <div className="p-1.5 bg-green-100 rounded-lg">
+                        <CheckCircle2 className="w-4 h-4 text-green-600" />
+                    </div>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">{stats.done}</div>
+                <div className="text-xs text-gray-400 mt-1">累積完成數量</div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="text-gray-500 text-sm font-medium">完成率</span>
+                    <div className="p-1.5 bg-purple-100 rounded-lg">
+                        <PieChart className="w-4 h-4 text-purple-600" />
+                    </div>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">{completionRate}%</div>
+                <div className="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+                    <div className="bg-purple-600 h-1.5 rounded-full" style={{ width: `${completionRate}%` }}></div>
+                </div>
+            </div>
         </div>
 
         {/* Filters */}
@@ -315,6 +361,9 @@ function App() {
         {/* Task Grid */}
         {filteredTasks.length === 0 ? (
             <div className="text-center py-20 bg-white rounded-lg border border-dashed border-gray-300">
+                <div className="flex justify-center mb-4">
+                    <CircleDashed className="w-12 h-12 text-gray-300" />
+                </div>
                 <p className="text-gray-500 text-lg">目前沒有符合條件的任務</p>
                 {viewMode === 'outbox' && (
                     <Button variant="ghost" onClick={() => setIsCreateModalOpen(true)} className="mt-4">

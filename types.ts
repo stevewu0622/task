@@ -1,3 +1,4 @@
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   USER = 'USER'
@@ -26,6 +27,12 @@ export enum TaskStatus {
   DONE = 'DONE'                // Completed/Replied
 }
 
+export enum TaskPriority {
+  HIGH = 'HIGH',
+  MEDIUM = 'MEDIUM',
+  LOW = 'LOW'
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -33,10 +40,11 @@ export interface Task {
   createdBy: string; // User ID
   createdByName: string;
   assignedTo: string[]; // Array of User IDs
-  status: TaskStatus; // Simplified: Global status. Complex apps might need status per assignee.
+  status: TaskStatus; // Simplified: Global status.
+  priority: TaskPriority;
   dueDate: string; // ISO Date string
   createdAt: number;
-  isRead: boolean; // Local state for notification badging
+  readBy: string[]; // Array of User IDs who have seen this task
 }
 
 export interface AuthState {
